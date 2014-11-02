@@ -54,6 +54,23 @@ io.sockets.on('connection', function (socket) {
 		});
 	});
 
+	socket.on('disconnect', function(){
+		if(!myRoom.isFull()) {
+			myRoom.discardPlayer(myRoom.getPlayer(socket));
+		}
+		if(myRoom.isFull() && !myRoom.isLaunched()) {
+			myRoom.roomRequest('server', {type: 1, code: 1, player: myRoom.getPlayer(socket).getInfos()});
+			myRoom.stop();
+		}
+		if(myRoom.isFull() && myRoom.isLaunched()) {
+			myRoom.roomRequest('server', {type: 1, code: 2, player: myRoom.getPlayer(socket).getInfos()});
+			myRoom.stop();
+		}
+		if(myRoom.isEnded()) {
+			myRoom.roomRequest('server', {type: 1, code: 3, player: myRoom.getPlayer(socket).getInfos()});
+		}
+	});
+
 	socket.on('ready', function (data) {
 		myRoom.getPlayer(socket).setReady(true);
 
@@ -122,40 +139,42 @@ function launchGame(room) {
 	timesPower.sort(compare);
 	room.setTimesPower(timesPower);
 
-	console.log(room.timesPower);
-	console.log(room.getPowers());
+	room.launch();
 
 	stepGame(room);
 }
 
 function stepGame(room) {
-	var blackRandom = Math.floor(Math.random() * 20);
-	var power = false;
+	if(!room.isStopped()) {
+		var blackRandom = Math.floor(Math.random() * 20);
+		var power = false;
 
-	if(room.getTime() >= room.getTimePower() && room.getNbPowers() > 0) {
-		var stepColor = room.getBonus();
-		power = room.getOnePower();
-		room.changeTimePower();
-	}
-	else if(blackRandom == 0 && room.getNbBlack() < 5) var stepColor = room.getMalus();
-	else {
-		var stepColor = room.getCurrentColor();
-		room.nextColor();
-	}
+		if(room.getTime() >= room.getTimePower() && room.getNbPowers() > 0) {
+			var stepColor = room.getBonus();
+			power = room.getOnePower();
+			room.changeTimePower();
+		}
+		else if(blackRandom == 0 && room.getNbBlack() < 5) var stepColor = room.getMalus();
+		else {
+			var stepColor = room.getCurrentColor();
+			room.nextColor();
+		}
 
-	generateBox(room, stepColor, power);
+		generateBox(room, stepColor, power);
 
-	if(room.getTime()+2*room.getRatio() >= 30) {
-		setTimeout(function() { endGame(room); }, 30-room.getTime());
-		room.setTime(30);
-	} else {
-		setTimeout(function() { stepGame(room); }, 2*room.getRatio()*1000);
-		room.setTime(room.getTime()+2*room.getRatio());
-		room.nextRatio();
+		if(room.getTime()+2*room.getRatio() >= 30) {
+			setTimeout(function() { endGame(room); }, 30-room.getTime());
+			room.setTime(30);
+		} else {
+			setTimeout(function() { stepGame(room); }, 2*room.getRatio()*1000);
+			room.setTime(room.getTime()+2*room.getRatio());
+			room.nextRatio();
+		}
 	}
 }
 
 function endGame(room) {
+	room.end();
 	var points = [];
 	var winner = room.getPlayers()[0];
 	for(player in room.getPlayers()) {
@@ -167,7 +186,7 @@ function endGame(room) {
 		});
 		points.push({pseudo: room.getPlayers()[player].getInfos().pseudo, points: room.getPlayers()[player].getPoints()});	
 	}
-	connection.query("UPDATE rankings SET nbWon=nbWon+1 WHERE member=?", room.getPlayers()[player].getInfos().id, function(err, rows, fields) {
+	connection.query("UPDATE rankings SET nbWon=nbWon+1 WHERE member=?", winner.getInfos().id, function(err, rows, fields) {
 		if (err) throw err;
 	});
 	room.roomRequest('stop', points);
