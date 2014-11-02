@@ -55,19 +55,19 @@ io.sockets.on('connection', function (socket) {
 	});
 
 	socket.on('disconnect', function(){
-		if(!myRoom.isFull()) {
-			myRoom.discardPlayer(myRoom.getPlayer(socket));
+		if(myRoom.isEnded()) {
+			myRoom.roomRequest('server', {type: 1, code: 3, player: myRoom.getPlayer(socket).getInfos()});
 		}
-		if(myRoom.isFull() && !myRoom.isLaunched()) {
+		else if(!myRoom.isFull() && !myRoom.isLaunched()) {
+			if(myRoom.getPlayer(socket) != undefined) myRoom.discardPlayer(myRoom.getPlayer(socket));
+		}
+		else if(myRoom.isFull() && !myRoom.isLaunched()) {
 			myRoom.roomRequest('server', {type: 1, code: 1, player: myRoom.getPlayer(socket).getInfos()});
 			myRoom.stop();
 		}
-		if(myRoom.isFull() && myRoom.isLaunched()) {
+		else if(myRoom.isFull() && myRoom.isLaunched()) {
 			myRoom.roomRequest('server', {type: 1, code: 2, player: myRoom.getPlayer(socket).getInfos()});
 			myRoom.stop();
-		}
-		if(myRoom.isEnded()) {
-			myRoom.roomRequest('server', {type: 1, code: 3, player: myRoom.getPlayer(socket).getInfos()});
 		}
 	});
 
@@ -80,7 +80,7 @@ io.sockets.on('connection', function (socket) {
 	});
 
 	socket.on('speak', function (data) {
-		myRoom.roomRequest('speak', {message:data.message, pseudo:myRoom.getPlayer(socket).getInfos().pseudo, color:myRoom.getPlayer(socket).getColor() });
+		if(myRoom.getPlayer(socket) != undefined) myRoom.roomRequest('speak', {message:data.message, pseudo:myRoom.getPlayer(socket).getInfos().pseudo, color:myRoom.getPlayer(socket).getColor() });
 	});
 
 	socket.on('killbox', function (data) {
