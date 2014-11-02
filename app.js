@@ -162,14 +162,14 @@ function endGame(room) {
 		if(room.getPlayers()[player].getPoints() > winner.getPoints()) winner = room.getPlayers()[player];
 		var noPowerState = 0;
 		if(room.getPlayers()[player].getNoPowers()) noPowerState = 1;
-		connection.query("UPDATE rankings SET points=points+?, noPower=noPower+?, nbPlayed=nbPlayed+1 WHERE member=?", room.getPlayers()[player].getPoints(), noPowerState, room.getPlayers()[player].getInfos().id, function(err, rows, fields) {
+		connection.query("UPDATE rankings SET points=points+?, noPower=noPower+?, nbPlayed=nbPlayed+1 WHERE member=?", [room.getPlayers()[player].getPoints(), noPowerState, room.getPlayers()[player].getInfos().id], function(err, rows, fields) {
 			if (err) throw err;
-		}):
+		});
 		points.push({pseudo: room.getPlayers()[player].getInfos().pseudo, points: room.getPlayers()[player].getPoints()});	
 	}
 	connection.query("UPDATE rankings SET nbWon=nbWon+1 WHERE member=?", room.getPlayers()[player].getInfos().id, function(err, rows, fields) {
 		if (err) throw err;
-	}):
+	});
 	room.roomRequest('stop', points);
 }
 
