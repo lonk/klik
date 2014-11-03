@@ -9,9 +9,9 @@ var mysql      = require('mysql');
 var config = JSON.parse(fs.readFileSync("./config.json"));
 var connection = mysql.createConnection(config);
 
-connection.connect();
-
-app.listen(3000);
+connection.connect(function(err) {
+	app.listen(1053);
+});
 
 function handler (req, res) {
   res.writeHead(200);
@@ -21,19 +21,25 @@ function handler (req, res) {
 const roomSize = 2;
 
 var currentRoom = new rooms.Room(roomSize);
+var validSocket = [];
 
 io.sockets.on('connection', function (socket) {
 	var myRoom = currentRoom;
 	socket.on('id', function (data) {
+		console.log(data);
 		connection.query("SELECT * FROM members WHERE phpsessid=?", data.id, function(err, rows, fields) {
 			if (err) throw err;
-
-			currentRoom.addPlayer(new players.Player(socket), rows[0]);
+			console.log(rows);
+			validSocket.push(socket);
+			myRoom.addPlayer(new players.Player(socket), rows[0]);
 
 			socket.emit('connection', {color: currentRoom.getPlayer(socket).getColor(), pseudo: currentRoom.getPlayer(socket).getInfos().pseudo});
 
 			if(currentRoom.isFull()) { 
 				currentRoom = new rooms.Room(roomSize);
+				for(opponent in myRoom.getPlayers()) {
+					myRoom.otherPlayersRequest(myRoom.getPlayers()[opponent].getSocket(), 'opponents', {color: myRoom.getPlayers()[opponent].getColor()});
+				}
 				myRoom.roomRequest('ready', {});
 			} else {
 				var roomToLoad = currentRoom;
@@ -55,58 +61,65 @@ io.sockets.on('connection', function (socket) {
 	});
 
 	socket.on('disconnect', function(){
-		if(myRoom.isEnded()) {
-			myRoom.roomRequest('server', {type: 1, code: 3, player: myRoom.getPlayer(socket).getInfos()});
-		}
-		else if(!myRoom.isFull() && !myRoom.isLaunched()) {
-			if(myRoom.getPlayer(socket) != undefined) myRoom.discardPlayer(myRoom.getPlayer(socket));
-		}
-		else if(myRoom.isFull() && !myRoom.isLaunched()) {
-			myRoom.roomRequest('server', {type: 1, code: 1, player: myRoom.getPlayer(socket).getInfos()});
-			myRoom.stop();
-		}
-		else if(myRoom.isFull() && myRoom.isLaunched()) {
-			myRoom.roomRequest('server', {type: 1, code: 2, player: myRoom.getPlayer(socket).getInfos()});
-			myRoom.stop();
+		if(validSocket.indexOf(socket) != -1) {
+			if(currentRoom == myRoom) currentRoom.discardPlayer(currentRoom.getPlayer(socket));
+			if(myRoom.isEnded()) {
+				if(myRoom.getPlayer(socket) != undefined) myRoom.roomRequest('server', {type: 1, code: 3, player: myRoom.getPlayer(socket).getInfos()});
+			}
+			else if(myRoom.isFull() && !myRoom.isLaunched()) {
+				myRoom.roomRequest('server', {type: 1, code: 1, player: myRoom.getPlayer(socket).getInfos()});
+				myRoom.stop();
+			}
+			else if(myRoom.isFull() && myRoom.isLaunched()) {
+				myRoom.roomRequest('server', {type: 1, code: 2, player: myRoom.getPlayer(socket).getInfos()});
+				myRoom.stop();
+			}
+			delete validSocket[validSocket.indexOf(socket)];
 		}
 	});
 
 	socket.on('ready', function (data) {
-		myRoom.getPlayer(socket).setReady(true);
+		if(validSocket.indexOf(socket) != -1) {
+			myRoom.getPlayer(socket).setReady(true);
 
-		if(myRoom.isReady()) {
-			setTimeout(function() { launchRoom(myRoom); }, 1000);
+			if(myRoom.isReady()) {
+				setTimeout(function() { launchRoom(myRoom); }, 1000);
+			}
 		}
 	});
 
 	socket.on('speak', function (data) {
-		if(myRoom.getPlayer(socket) != undefined) myRoom.roomRequest('speak', {message:data.message, pseudo:myRoom.getPlayer(socket).getInfos().pseudo, color:myRoom.getPlayer(socket).getColor() });
+		if(validSocket.indexOf(socket) != -1) myRoom.roomRequest('speak', {message:data.message, pseudo:myRoom.getPlayer(socket).getInfos().pseudo, color:myRoom.getPlayer(socket).getColor() });
 	});
 
 	socket.on('killbox', function (data) {
-		if(!myRoom.getBox(data.id).isKilled()) {
-			if(myRoom.getBox(data.id).getColor() == myRoom.getPlayer(socket).getColor()) {
-				myRoom.getPlayer(socket).addPoints(1);
-			} else if(myRoom.getBox(data.id).getColor() == myRoom.getMalus()) {
-				myRoom.getPlayer(socket).rmPoints(3);
-				if(myRoom.getPlayer(socket).getPoints() < 0) myRoom.getPlayer(socket).setPoints(0);
-			} else if(myRoom.getBox(data.id).getColor() == myRoom.getBonus()) {
-				myRoom.getPlayer(socket).givePower(myRoom.getBox(data.id).getPower());
-				myRoom.getPlayer(socket).send('addpower', {box: data.id, power: myRoom.getBox(data.id).getPower()});
-			} else {
-				myRoom.getPlayer(socket).rmPoints(2);
-				if(myRoom.getPlayer(socket).getPoints() < 0) myRoom.getPlayer(socket).setPoints(0);
-			}
+		if(validSocket.indexOf(socket) != -1) {
+			if(!myRoom.getBox(data.id).isKilled()) {
+				if(myRoom.getBox(data.id).getColor() == myRoom.getPlayer(socket).getColor()) {
+					myRoom.getPlayer(socket).addPoints(1);
+				} else if(myRoom.getBox(data.id).getColor() == myRoom.getMalus()) {
+					myRoom.getPlayer(socket).rmPoints(3);
+					if(myRoom.getPlayer(socket).getPoints() < 0) myRoom.getPlayer(socket).setPoints(0);
+				} else if(myRoom.getBox(data.id).getColor() == myRoom.getBonus()) {
+					myRoom.getPlayer(socket).givePower(myRoom.getBox(data.id).getPower());
+					myRoom.getPlayer(socket).send('addpower', {box: data.id, power: myRoom.getBox(data.id).getPower()});
+				} else {
+					myRoom.getPlayer(socket).rmPoints(2);
+					if(myRoom.getPlayer(socket).getPoints() < 0) myRoom.getPlayer(socket).setPoints(0);
+				}
 
-			myRoom.roomRequest('killbox', data);
-			myRoom.getBox(data.id).kill();
+				myRoom.roomRequest('killbox', data);
+				myRoom.getBox(data.id).kill();
+			}
 		}
 	});
 
 	socket.on('attack', function (data) {
-		if(myRoom.getPlayer(socket).hasPower(data.power)) {
-			myRoom.otherPlayersRequest(socket, 'attack', {power: data.power});
-			myRoom.getPlayer(socket).discardPower(data.power);
+		if(validSocket.indexOf(socket) != -1) {
+			if(myRoom.getPlayer(socket).hasPower(data.power)) {
+				myRoom.otherPlayersRequest(socket, 'attack', {power: data.power});
+				myRoom.getPlayer(socket).discardPower(data.power);
+			}
 		}
 	});
 });
@@ -134,7 +147,7 @@ function launchGame(room) {
 	var timesPower = [];
 
 	for(i=0;i<room.getNbPowers();i++) {
-		timesPower.push(5+Math.floor(Math.random() * 20));
+		timesPower.push(5+Math.floor(Math.random() * 25));
 	}
 	timesPower.sort(compare);
 	room.setTimesPower(timesPower);
@@ -162,9 +175,9 @@ function stepGame(room) {
 
 		generateBox(room, stepColor, power);
 
-		if(room.getTime()+2*room.getRatio() >= 30) {
-			setTimeout(function() { endGame(room); }, 30-room.getTime());
-			room.setTime(30);
+		if(room.getTime()+2*room.getRatio() >= 60) {
+			setTimeout(function() { endGame(room); }, 60-room.getTime());
+			room.setTime(60);
 		} else {
 			setTimeout(function() { stepGame(room); }, 2*room.getRatio()*1000);
 			room.setTime(room.getTime()+2*room.getRatio());
